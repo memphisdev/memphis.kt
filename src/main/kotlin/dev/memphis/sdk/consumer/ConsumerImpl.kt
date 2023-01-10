@@ -73,7 +73,7 @@ internal class ConsumerImpl constructor(
         consumingStatus = ConsumingStatus.ACTIVE
     }
 
-    private fun io.nats.client.Message.toSdkMessage() = Message(this, memphis, group)
+    private fun io.nats.client.Message.toSdkMessage() = Message(this, memphis)
 
     override suspend fun subscribeMessages(): Flow<Message> = flow {
         setConsumeActive()
@@ -81,7 +81,7 @@ internal class ConsumerImpl constructor(
         while (currentCoroutineContext().isActive) {
             subscription.pull(1)
             val msg = subscription.nextMessage(0)
-            emit(Message(msg, memphis, group))
+            emit(msg.toSdkMessage())
         }
     }
 

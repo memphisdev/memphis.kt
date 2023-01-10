@@ -8,8 +8,7 @@ import kotlinx.serialization.json.put
 
 class Message internal constructor(
     private val message: Message,
-    private val memphis: Memphis,
-    private val consumerGroup: String
+    private val memphis: Memphis
 ) {
     val data: ByteArray = message.data
     val headers: Map<String, String>
@@ -23,10 +22,12 @@ class Message internal constructor(
         if (message.isJetStream) {
             message.ackSync(30.seconds.toJavaDuration())
         } else {
-            val header = message.headers["${'$'}memphis_pm_id"]
+            val pmId = headers["${'$'}memphis_pm_id"]
+            val sequence = headers["\$memphis_pm_sequence"]
+
             val buf = buildJsonObject {
-                put("id", header.first())
-                put("cg_name", consumerGroup)
+                put("id", pmId)
+                put("sequence", sequence)
             }
 
             memphis.brokerConnection.publish("${'$'}memphis_pm_acks", buf.toString().toByteArray())
