@@ -108,7 +108,7 @@ publishing {
             from(components["java"])
             artifact(sourcesJar.get())
 
-            val artifactName = "${project.name}Kt"
+            val artifactName = "${project.name}.kt"
             groupId = project.group.toString()
             artifactId = artifactName
             version = project.version.toString()
