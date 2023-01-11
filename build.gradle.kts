@@ -5,11 +5,29 @@ plugins {
     kotlin("jvm") version "1.7.22"
     id("org.jetbrains.kotlin.plugin.serialization") version "1.7.22"
 
+    id("me.qoomon.git-versioning") version "6.3.7"
+
     `maven-publish`
 }
 
 group = "dev.memphis.sdk"
-version = "1.0-SNAPSHOT"
+version = "0.0.0-SNAPSHOT"
+
+gitVersioning.apply {
+    refs {
+        branch(".+") {
+            version = "\${ref}-\${commit.short}-SNAPSHOT"
+        }
+        tag("v(?<version>.*)") {
+            version = "\${ref.version}"
+        }
+    }
+
+    // optional fallback configuration in case of no matching ref configuration
+    rev {
+        version = "\${commit}"
+    }
+}
 
 allprojects {
     repositories {
@@ -86,12 +104,34 @@ val sourcesJar by tasks.registering(Jar::class) {
 
 publishing {
     publications {
-        register("mavenJava", MavenPublication::class) {
+        register("dist", MavenPublication::class) {
             from(components["java"])
             artifact(sourcesJar.get())
+
+            val artifactName = "${project.name}.kt"
             groupId = project.group.toString()
-            artifactId = project.name
+            artifactId = artifactName
             version = project.version.toString()
+
+            pom {
+                name.set("${project.group}:${artifactName}")
+                description.set("Kotlin client for Memphis. Memphis is a Real-Time Data Processing Platform")
+                url.set("https://memphis.dev")
+
+                licenses {
+                    license {
+                        name.set("The Apache Software License, Version 2.0")
+                        url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                    }
+                }
+
+                scm {
+                    url.set("https://github.com/memphisdev/memphis.kt")
+                    connection.set("scm:git:https://github.com/memphisdev/memphis.kt.git")
+                    developerConnection.set("scm:git:ssh://git@github.com/memphisdev/memphis.kt.git")
+                }
+
+            }
         }
     }
 }

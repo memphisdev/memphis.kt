@@ -52,8 +52,17 @@ Maintainer: [@adrianNEMO](https://github.com/nemoengineering/memphis.kt/commits?
 After installing and running memphis broker,<br>
 Add to the dependencies in your gradle file
 
+Currently, releases are published to jitpack: [jitpack.io/#memphisdev/memphis.kt](https://jitpack.io/#memphisdev/memphis.kt)
+
 ```kotlin
-implementation("TODO")
+ repositories {
+    mavenCentral()
+    maven("https://jitpack.io")
+}
+
+dependencies {
+    implementation("com.github.memphisdev:memphis.kt:<version>")
+}
 ```
 
 # Importing
