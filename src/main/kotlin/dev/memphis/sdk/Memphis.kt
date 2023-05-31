@@ -28,8 +28,9 @@ import mu.KotlinLogging
 
 class Memphis private constructor(
     val host: String,
-    val username: String,
-    connectionToken: String,
+    val username: String?,
+    val connectionToken: String,
+    val password: String,
     val port: Int,
     val autoReconnect: Boolean,
     val maxReconnects: Int,
@@ -42,17 +43,8 @@ class Memphis private constructor(
 
     val connectionId = generateRandomHex(12)
 
-    internal val brokerConnection: Connection =
-        io.nats.client.Options.Builder()
-            .server("nats://${host}:${port}")
-            .connectionName("$connectionId::${username}")
-            .token(connectionToken.toCharArray())
-            .connectionTimeout(connectionTimeout.toJavaDuration())
-            .reconnectWait(reconnectWait.toJavaDuration())
-            .maxReconnects(maxReconnects)
-            .let { if (autoReconnect) it else it.noReconnect() }
-            .build()
-            .let { Nats.connect(it) }
+    internal val brokerConnection: Connection = if (connectionToken.isNotEmpty() && password.isEmpty())
+        getTokenBrokerConnection() else getUserPassBrokerConnection()
 
     internal val brokerDispatch: Dispatcher = brokerConnection.createDispatcher()
     private val jetStream: JetStream = brokerConnection.jetStream()
@@ -65,6 +57,31 @@ class Memphis private constructor(
     fun close() {
         scope.cancel()
         brokerConnection.close()
+    }
+
+    private fun getTokenBrokerConnection() : Connection {
+        return io.nats.client.Options.Builder()
+            .server("nats://${host}:${port}")
+            .connectionName("$connectionId::${username}")
+            .token(connectionToken.toCharArray())
+            .connectionTimeout(connectionTimeout.toJavaDuration())
+            .reconnectWait(reconnectWait.toJavaDuration())
+            .maxReconnects(maxReconnects)
+            .let { if (autoReconnect) it else it.noReconnect() }
+            .build()
+            .let { Nats.connect(it) }
+    }
+    private fun getUserPassBrokerConnection() : Connection {
+        return io.nats.client.Options.Builder()
+            .server("nats://${host}:${port}")
+            .connectionName("$connectionId::${username}")
+            .userInfo(username, password)
+            .connectionTimeout(connectionTimeout.toJavaDuration())
+            .reconnectWait(reconnectWait.toJavaDuration())
+            .maxReconnects(maxReconnects)
+            .let { if (autoReconnect) it else it.noReconnect() }
+            .build()
+            .let { Nats.connect(it) }
     }
 
     suspend fun consumer(
@@ -203,7 +220,8 @@ class Memphis private constructor(
     class Options(
         private val host: String,
         private val username: String,
-        private val connectionToken: String,
+        private val connectionToken: String?,
+        private val password:String?
     ) {
         var port = 6666;
         var autoReconnect = true;
@@ -212,15 +230,32 @@ class Memphis private constructor(
         var connectionTimeout = 15.seconds;
 
         internal fun build() = Memphis(
-            host, username, connectionToken, port, autoReconnect, maxReconnects, reconnectWait, connectionTimeout
+            host, username, connectionToken ?: "", password ?: "", port, autoReconnect, maxReconnects, reconnectWait, connectionTimeout
         )
     }
+    class Password constructor(
+        val password : String
+    )
+
+    class ConnectionToken(
+        val connectionToken: String
+    )
 
     companion object {
-        fun connect(host: String, username: String, connectionToken: String): Memphis =
-            Options(host, username, connectionToken).build()
+        fun connect(options: Options): Memphis =
+            options.build()
 
-        fun connect(host: String, username: String, connectionToken: String, options: Options.() -> Unit): Memphis =
-            Options(host, username, connectionToken).apply(options).build()
+        fun connect(host: String, username: String, password: Password): Memphis =
+            Options(host, username, null, password.password).build()
+
+        fun connect(host: String, username: String, connectionToken: ConnectionToken): Memphis =
+            Options(host, username, connectionToken.connectionToken, null).build()
+
+        fun connect(host: String, username: String, connectionToken: ConnectionToken, options: Options.() -> Unit): Memphis =
+            Options(host, username, connectionToken.connectionToken, null).apply(options).build()
+
+        fun connect(host: String, username: String, password: Password, options: Options.() -> Unit): Memphis =
+            Options(host, username, null, password.password).apply(options).build()
+
     }
 }
