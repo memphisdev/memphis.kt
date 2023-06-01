@@ -24,12 +24,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.future.await
+import kotlinx.serialization.internal.throwMissingFieldException
 import mu.KotlinLogging
 
 class Memphis private constructor(
     val host: String,
     val username: String,
-    connectionToken: String,
+    authorizationType: AuthorizationType,
     val port: Int,
     val autoReconnect: Boolean,
     val maxReconnects: Int,
@@ -43,16 +44,12 @@ class Memphis private constructor(
     val connectionId = generateRandomHex(12)
 
     internal val brokerConnection: Connection =
-        io.nats.client.Options.Builder()
-            .server("nats://${host}:${port}")
-            .connectionName("$connectionId::${username}")
-            .token(connectionToken.toCharArray())
-            .connectionTimeout(connectionTimeout.toJavaDuration())
-            .reconnectWait(reconnectWait.toJavaDuration())
-            .maxReconnects(maxReconnects)
-            .let { if (autoReconnect) it else it.noReconnect() }
-            .build()
-            .let { Nats.connect(it) }
+        if (authorizationType is ConnectionToken)
+            buildBrokerConnection().token(authorizationType.connectionToken).build().let { Nats.connect(it) }
+        else if (authorizationType is Password)
+            buildBrokerConnection().userInfo(username, authorizationType.password).build().let { Nats.connect(it) }
+        else
+            throw MemphisError("Authorization type unrecognized.")
 
     internal val brokerDispatch: Dispatcher = brokerConnection.createDispatcher()
     private val jetStream: JetStream = brokerConnection.jetStream()
@@ -65,6 +62,16 @@ class Memphis private constructor(
     fun close() {
         scope.cancel()
         brokerConnection.close()
+    }
+
+    private fun buildBrokerConnection() : io.nats.client.Options.Builder {
+        return io.nats.client.Options.Builder()
+            .server("nats://${host}:${port}")
+            .connectionName("$connectionId::${username}")
+            .connectionTimeout(connectionTimeout.toJavaDuration())
+            .reconnectWait(reconnectWait.toJavaDuration())
+            .maxReconnects(maxReconnects)
+            .let { if (autoReconnect) it else it.noReconnect() }
     }
 
     suspend fun consumer(
@@ -203,7 +210,7 @@ class Memphis private constructor(
     class Options(
         private val host: String,
         private val username: String,
-        private val connectionToken: String,
+        private val authorizationType: AuthorizationType
     ) {
         var port = 6666;
         var autoReconnect = true;
@@ -212,15 +219,29 @@ class Memphis private constructor(
         var connectionTimeout = 15.seconds;
 
         internal fun build() = Memphis(
-            host, username, connectionToken, port, autoReconnect, maxReconnects, reconnectWait, connectionTimeout
+            host, username, authorizationType, port, autoReconnect, maxReconnects, reconnectWait, connectionTimeout
         )
     }
 
-    companion object {
-        fun connect(host: String, username: String, connectionToken: String): Memphis =
-            Options(host, username, connectionToken).build()
+    interface AuthorizationType
 
-        fun connect(host: String, username: String, connectionToken: String, options: Options.() -> Unit): Memphis =
-            Options(host, username, connectionToken).apply(options).build()
+    class Password (
+        val password : String
+    ): AuthorizationType
+
+    class ConnectionToken (
+        val connectionToken: String
+    ): AuthorizationType
+
+    companion object {
+        fun connect(options: Options): Memphis =
+            options.build()
+
+        fun connect(host: String, username: String, authorizationType: AuthorizationType): Memphis =
+            Options(host, username, authorizationType).build()
+
+        fun connect(host: String, username: String, authorizationType: AuthorizationType, options: Options.() -> Unit): Memphis =
+            Options(host, username, authorizationType).apply(options).build()
+
     }
 }

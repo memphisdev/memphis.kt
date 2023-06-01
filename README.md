@@ -70,15 +70,20 @@ dependencies {
 import dev.memphis.sdk.Memphis
 ```
 
-### Connecting to Memphis
+### Connecting to Memphis 
+To connect using Username and Password 
 ```kotlin
-val memphis = Memphis.connect("<memphis-host>", "<application type username>", "<broker-token>")
+ val memphis = Memphis.connect("<memphis-host>", "<application type username>", Memphis.Password("<user-password>"))
+```
+To connect using Token 
+```kotlin
+ val memphis = Memphis.connect("<memphis-host>", "<application type username>", Memphis.ConnectionToken("<user-password>"))
 ```
 <br>
 It is possible to pass connection configuration parameters.
 
 ```kotlin
-val memphis = Memphis.connect("<memphis-host>", "<application type username>", "<broker-token>") {
+val memphis = Memphis.connect("<memphis-host>", "<application type username>", Memphis.Password("<user-password>") {
     port = 6666
     autoReconnect = true
     maxReconnects = 3
