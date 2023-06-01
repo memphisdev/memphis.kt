@@ -48,8 +48,8 @@ class Memphis private constructor(
             buildBrokerConnection().token(authorizationType.connectionToken).build().let { Nats.connect(it) }
         else if (authorizationType is Password)
             buildBrokerConnection().userInfo(username, authorizationType.password).build().let { Nats.connect(it) }
-    else
-        throw MemphisError("Authorization type unrecognized.")
+        else
+            throw MemphisError("Authorization type unrecognized.")
 
     internal val brokerDispatch: Dispatcher = brokerConnection.createDispatcher()
     private val jetStream: JetStream = brokerConnection.jetStream()
