@@ -5,7 +5,7 @@ import kotlinx.coroutines.runBlocking
 
 fun main() {
     runBlocking {
-        val memphis = Memphis.connect("<memphis-host>", "<application type username>", Memphis.Password("<user-password"))
+        val memphis = Memphis.connect("<memphis-host>", "<application type username>", Memphis.Password("<user-password")) // For Token Authentication use Memphis.ConnectionToken
 
         val producer = memphis.producer("<station-name>", "<producer-name>")
 
