@@ -83,13 +83,12 @@ To connect using Token
 It is possible to pass connection configuration parameters.
 
 ```kotlin
-val memphis = Memphis.connect("<memphis-host>", "<application type username>", Memphis.Password("<user-password>") {
+val memphis = Memphis.connect("<memphis-host>", "<application type username>", Memphis.Password("<user-password>")) {
     port = 6666
     autoReconnect = true
     maxReconnects = 3
     reconnectWait = 5.seconds
     connectionTimeout = 15.seconds
-            
 }
 ```
 
