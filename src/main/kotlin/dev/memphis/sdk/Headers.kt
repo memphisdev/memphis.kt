@@ -5,6 +5,12 @@ import io.nats.client.impl.Headers
 class Headers {
     internal val headers = Headers()
 
+    /**
+     * Adds a header to the message.
+     * @param key the header key
+     * @param value the header value
+     * @throws MemphisError if the key starts with `${'$'}memphis`
+     */
     fun put(key: String, value: String) {
         validateKey(key)
         putUnchecked(key, value)

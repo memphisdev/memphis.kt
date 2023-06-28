@@ -1,6 +1,6 @@
 package dev.memphis.sdk.resources
 
-import dev.memphis.sdk.EnumOrdinalSerilizer
+import dev.memphis.sdk.EnumOrdinalSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -10,9 +10,9 @@ internal data class SchemaUpdate(
     val init: SchemaUpdateInit?
 )
 
-private object SchemaUpdateTypeSerilizer : EnumOrdinalSerilizer<SchemaUpdateType>(SchemaUpdateType::class, 1)
+private object SchemaUpdateTypeSerializer : EnumOrdinalSerializer<SchemaUpdateType>(SchemaUpdateType::class, 1)
 
-@Serializable(with = SchemaUpdateTypeSerilizer::class)
+@Serializable(with = SchemaUpdateTypeSerializer::class)
 internal enum class SchemaUpdateType {
     INIT,
     DROP
@@ -25,6 +25,7 @@ internal data class SchemaUpdateInit(
     @SerialName("type") val schemaType: SchemaType
 )
 
+@Serializable
 internal enum class SchemaType {
     @SerialName("")
     NO_SCHEMA,

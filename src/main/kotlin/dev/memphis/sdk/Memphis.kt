@@ -24,7 +24,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.future.await
-import kotlinx.serialization.internal.throwMissingFieldException
 import mu.KotlinLogging
 
 class Memphis private constructor(
@@ -44,12 +43,11 @@ class Memphis private constructor(
     val connectionId = generateRandomHex(12)
 
     internal val brokerConnection: Connection =
-        if (authorizationType is ConnectionToken)
-            buildBrokerConnection().token(authorizationType.connectionToken).build().let { Nats.connect(it) }
-        else if (authorizationType is Password)
-            buildBrokerConnection().userInfo(username, authorizationType.password).build().let { Nats.connect(it) }
-        else
-            throw MemphisError("Authorization type unrecognized.")
+        when (authorizationType) {
+            is ConnectionToken -> buildBrokerConnection().token(authorizationType.connectionToken).build().let { Nats.connect(it) }
+            is Password -> buildBrokerConnection().userInfo(username, authorizationType.password).build().let { Nats.connect(it) }
+            else -> throw MemphisError("Authorization type unrecognized.")
+        }
 
     internal val brokerDispatch: Dispatcher = brokerConnection.createDispatcher()
     private val jetStream: JetStream = brokerConnection.jetStream()
@@ -57,8 +55,16 @@ class Memphis private constructor(
     internal val stationUpdateManager = StationUpdateManager(brokerDispatch, scope)
     internal val configUpdateManager = ConfigUpdateManager(brokerDispatch, scope)
 
+    /**
+     * Check if the connection to the Memphis broker is connected.
+     * @return [Boolean] True if connected, false otherwise.
+     */
     fun isConnected() = brokerConnection.status == Connection.Status.CONNECTED
 
+    /**
+     * Close the connection to the Memphis broker.
+     * @see [Connection.close]
+     */
     fun close() {
         scope.cancel()
         brokerConnection.close()
@@ -74,6 +80,16 @@ class Memphis private constructor(
             .let { if (autoReconnect) it else it.noReconnect() }
     }
 
+    /**
+     * Creates a new consumer for the given station.
+     * @param stationName The name of the station to consume from.
+     * @param consumerName The name of the consumer.
+     * @param options The options to use when creating the consumer, see [Consumer.Options].
+     * @return [Consumer] The newly created consumer.
+     * @throws [MemphisError] If the station does not exist, or if the consumer name is invalid.
+     * @see [Consumer.Options]
+     * @see [Consumer]
+     */
     suspend fun consumer(
         stationName: String,
         consumerName: String,
@@ -113,6 +129,16 @@ class Memphis private constructor(
         return consumerImpl
     }
 
+    /**
+     * Creates a new producer for the given station.
+     * @param stationName The name of the station to produce to.
+     * @param producerName The name of the producer.
+     * @param options The options to use when creating the producer, see [Producer.Options].
+     * @return [Producer] The newly created producer.
+     * @throws [MemphisError] If the station does not exist, or if the producer name is invalid.
+     * @see [Producer.Options]
+     * @see [Producer]
+     */
     suspend fun producer(
         stationName: String,
         producerName: String,
@@ -151,6 +177,14 @@ class Memphis private constructor(
         return stationUpdateManager[stationName.toInternalName()].schema
     }
 
+    /**
+     * Creates a new station with the given name and options.
+     * @param name The name of the station to create.
+     * @param options The options to use when creating the station, see [Station.Options].
+     * @return [Station] The newly created station.
+     * @throws [MemphisError] If the station already exists, or if the station name is invalid.
+     * @see [Station.Options]
+     */
     suspend fun createStation(name: String, options: (Station.Options.() -> Unit)? = null): Station {
         val opts = options?.let { Station.Options().apply(it) } ?: Station.Options()
 
@@ -176,10 +210,23 @@ class Memphis private constructor(
         return station
     }
 
+    /**
+     * Attaches a schema to a station given the schema name and station name.
+     * @param schemaName The name of the schema to attach.
+     * @param stationName The name of the station to attach the schema to.
+     * @throws [MemphisError] If the station does not exist, or if the station name is invalid.
+     * @see [detachSchema]
+     */
     suspend fun attachSchema(schemaName: String, stationName: String) {
         createResource(SchemaLifecycle.Attach(schemaName, stationName))
     }
 
+    /**
+     * Detaches the schema from the station given the station name.
+     * @param stationName The name of the station to detach the schema from.
+     * @throws [MemphisError] If the station does not exist, or if the station name is invalid.
+     * @see [attachSchema]
+     */
     suspend fun detachSchema(stationName: String) {
         destroyResource(SchemaLifecycle.Detach(stationName))
     }
@@ -212,11 +259,30 @@ class Memphis private constructor(
         private val username: String,
         private val authorizationType: AuthorizationType
     ) {
-        var port = 6666;
-        var autoReconnect = true;
-        var maxReconnects = 3;
-        var reconnectWait = 5.seconds;
-        var connectionTimeout = 15.seconds;
+        /**
+         * The port to connect to, defaults to 6666.
+         */
+        var port = 6666
+
+        /**
+         * Whether to automatically reconnect to the broker if the connection is lost, defaults to true.
+         */
+        var autoReconnect = true
+
+        /**
+         * The maximum number of reconnect attempts, defaults to 3.
+         */
+        var maxReconnects = 3
+
+        /**
+         * The time to wait between reconnect attempts, defaults to 5 seconds.
+         */
+        var reconnectWait = 5.seconds
+
+        /**
+         * The timeout for connecting to the broker, defaults to 15 seconds.
+         */
+        var connectionTimeout = 15.seconds
 
         internal fun build() = Memphis(
             host, username, authorizationType, port, autoReconnect, maxReconnects, reconnectWait, connectionTimeout
@@ -226,20 +292,58 @@ class Memphis private constructor(
     interface AuthorizationType
 
     class Password (
+        /**
+         * The password to use for authentication.
+         * @see [Memphis.connect]
+         */
         val password : String
     ): AuthorizationType
 
     class ConnectionToken (
+        /**
+         * The connection token to use for authentication.
+         * @see [Memphis.connect]
+         */
         val connectionToken: String
     ): AuthorizationType
 
     companion object {
+
+        /**
+         * Connect to a Memphis instance with the given options.
+         * @param options A lambda to configure the Memphis instance, see [Options].
+         * @return [Memphis] The Memphis instance.
+         * @see [Options]
+         * @throws [MemphisError] If the connection fails or the authorization is invalid.
+         */
         fun connect(options: Options): Memphis =
             options.build()
 
+        /**
+         * Connect to a Memphis instance with the given host, username and authorization type.
+         * @param host The host of the Memphis instance, e.g. "localhost".
+         * @param username The username to use for authentication.
+         * @param authorizationType The type of authorization to use, either [Password] or [ConnectionToken].
+         * @return [Memphis] The Memphis instance.
+         * @see [Password]
+         * @see [ConnectionToken]
+         * @throws [MemphisError] If the connection fails or the authorization is invalid.
+         */
         fun connect(host: String, username: String, authorizationType: AuthorizationType): Memphis =
             Options(host, username, authorizationType).build()
 
+        /**
+         * Connect to a Memphis instance with the given host, username, authorization type and options.
+         * @param host The host of the Memphis instance, e.g. "localhost".
+         * @param username The username to use for authentication.
+         * @param authorizationType The type of authorization to use, either [Password] or [ConnectionToken].
+         * @param options A lambda to configure the Memphis instance, see [Options].
+         * @return [Memphis] The Memphis instance.
+         * @see [Password]
+         * @see [ConnectionToken]
+         * @see [Options]
+         * @throws [MemphisError] If the connection fails or the authorization is invalid.
+         */
         fun connect(host: String, username: String, authorizationType: AuthorizationType, options: Options.() -> Unit): Memphis =
             Options(host, username, authorizationType).apply(options).build()
 
