@@ -35,7 +35,7 @@ internal class StationUpdateManager(
         stationSub.startSubscription(sub)
 
         stationUpdateSubscriptions[stationName] = stationSub
-        println("applying $stationName")
+        logger.debug("applying $stationName")
     }
 
     suspend fun removeSchemaUpdateListener(stationName: String) {

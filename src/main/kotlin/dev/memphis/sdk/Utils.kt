@@ -22,7 +22,7 @@ internal fun generateRandomHex(length: Int) =
     List(length * 2) { Random.nextInt(0, 16).toString(16) }.joinToString("")
 
 internal fun Headers.toStringAll() = entrySet().joinToString(prefix = "(", postfix = ")") { "${it.key} -> ${it.value}" }
-internal open class EnumOrdinalSerilizer<E : Enum<E>>(
+internal open class EnumOrdinalSerializer<E : Enum<E>>(
     private val kClass: KClass<E>,
     private val ordinalOffset: Int = 0
 ) : KSerializer<E> {

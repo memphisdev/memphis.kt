@@ -2,10 +2,10 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     base
-    kotlin("jvm") version "1.7.22"
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.7.22"
+    kotlin("jvm") version "1.8.22"
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.8.22"
 
-    id("me.qoomon.git-versioning") version "6.3.7"
+    id("me.qoomon.git-versioning") version "6.4.2"
 
     `maven-publish`
 }
@@ -37,17 +37,17 @@ allprojects {
 }
 
 dependencies {
-    implementation("io.github.microutils:kotlin-logging-jvm:3.0.4")
+    implementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
 
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.6.4")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.4.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.7.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.1")
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.4.0")
 
-    implementation("io.nats:jnats:2.16.5")
+    implementation("io.nats:jnats:2.16.13")
     implementation("net.pwall.json:json-kotlin-schema:0.39")
-    implementation("com.graphql-java:graphql-java:20.0")
-    implementation("com.google.protobuf:protobuf-kotlin:3.21.9")
+    implementation("com.graphql-java:graphql-java:20.4")
+    implementation("com.google.protobuf:protobuf-kotlin:3.23.3")
 
     testImplementation(kotlin("test"))
 

@@ -24,7 +24,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.KotlinLogging
 
-internal class ConsumerImpl constructor(
+internal class ConsumerImpl(
     private val memphis: Memphis,
     override val name: String,
     private val stationName: String,
