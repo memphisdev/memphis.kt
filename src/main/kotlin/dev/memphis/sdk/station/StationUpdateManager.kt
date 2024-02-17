@@ -31,7 +31,7 @@ internal class StationUpdateManager(
         val stationSub = StationUpdateSubscription()
         scope.launch { stationSub.updatesHandler(mutex) }
 
-        val sub = dispatcher.subscribe("${'$'}memphis_schema_updates_$stationName", stationSub.messageHandler())
+        val sub = dispatcher.subscribe("\$memphis_schema_updates_$stationName", stationSub.messageHandler())
         stationSub.startSubscription(sub)
 
         stationUpdateSubscriptions[stationName] = stationSub

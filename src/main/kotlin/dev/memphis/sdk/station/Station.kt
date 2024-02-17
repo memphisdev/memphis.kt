@@ -63,7 +63,30 @@ interface Station {
     val sendSchemaFailedMsgToDls: Boolean
 
     /**
-     * Attach the station to a schema.
+     * The username used to create teh connection
+     *
+     * @property username The username value.
+     */
+    val username: String
+    /**
+     * Variable representing whether tiered storage is enabled.
+     */
+    val tieredStorageEnabled:Boolean
+    /**
+     * The number of partitions for the station.
+     *
+     * @property partitionsNumber The number of partitions for the station.
+     */
+    val partitionsNumber:Int
+    /**
+     * The `dlsStation` variable represents the name of the dead letter station
+     *
+     * @property dlsStation The name of the station that should be used for dead letters
+     */
+    val dlsStation: String?
+
+
+    /* Attach the station to a schema.
      * @param schemaName The name of the schema to attach the station to.
      */
     suspend fun attachSchema(schemaName: String)
@@ -85,9 +108,11 @@ interface Station {
         var retentionType = RetentionType.MAX_AGE_SECONDS
 
         /**
-         * The retention value of the station, either the number of seconds, messages or bytes depending on the [retentionType], default is 604800.
+         * The retention value of the station, either the number of seconds, messages or bytes depending on the [retentionType], default is 3600.
+         *
+         * The retention value has been downgraded to a single hour
          */
-        var retentionValue = 604800
+        var retentionValue = 3600
 
         /**
          * The storage type of the station, either [StorageType.DISK] or [StorageType.MEMORY], default is [StorageType.DISK].
@@ -118,5 +143,19 @@ interface Station {
          * Whether to send schema failed messages to the DLS or not, default is true.
          */
         var sendSchemaFailedMsgToDls = true
+
+        /**
+         * Whether tiered storage is enabled for the station.
+         */
+        var tieredStorageEnabled = false
+        /**
+         * The number of partitions for the station.
+         * The default value is 1.
+         */
+        var partitionsNumber: Int = 1
+        /**
+         * Nullable variable that represents the DLS (Dead-Letter-Station) associated with a station.
+         */
+        var dlsStation: String? = null
     }
 }

@@ -2,6 +2,7 @@ package dev.memphis.sdk.station
 
 import dev.memphis.sdk.Lifecycle
 import dev.memphis.sdk.Memphis
+import io.nats.client.Message
 import kotlin.time.Duration
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -18,7 +19,11 @@ class StationImpl(
     override val idempotencyWindow: Duration,
     private val createWithSchemaName: String?,
     override val sendPoisonMsgToDls: Boolean,
-    override val sendSchemaFailedMsgToDls: Boolean
+    override val sendSchemaFailedMsgToDls: Boolean,
+    override val username:String,
+    override val tieredStorageEnabled:Boolean,
+    override val partitionsNumber:Int,
+    override val dlsStation:String? = null,
 ) : Station, Lifecycle {
     override val schemaName: String
         get() {
@@ -38,7 +43,7 @@ class StationImpl(
     }
 
     override fun getCreationSubject(): String =
-        "${'$'}memphis_station_creations"
+        "\$memphis_station_creations"
 
     override fun getCreationRequest(): JsonObject = buildJsonObject {
         put("name", name)
@@ -48,16 +53,24 @@ class StationImpl(
         put("replicas", replicas)
         put("idempotency_window_in_ms", idempotencyWindow.inWholeMilliseconds.toInt())
         put("schema_name", createWithSchemaName ?: "")
+        put("username", username)
         putJsonObject("dls_configuration") {
             put("poison", sendPoisonMsgToDls)
             put("schemaverse", sendSchemaFailedMsgToDls)
         }
+        put("tiered_storage_enabled", tieredStorageEnabled)
+        put("partitions_number", partitionsNumber)
+        put("dls_station", dlsStation)
     }
 
     override fun getDestructionSubject(): String =
-        "${'$'}memphis_station_destructions"
+        "\$memphis_station_destructions"
 
     override fun getDestructionRequest(): JsonObject = buildJsonObject {
         put("station_name", name)
+    }
+
+    override suspend fun handleCreationResponse(msg: Message) {
+        super.handleCreationResponse(msg)
     }
 }

@@ -14,17 +14,18 @@ import io.nats.client.Dispatcher
 import io.nats.client.JetStream
 import io.nats.client.Nats
 import io.nats.client.PublishOptions
-import io.nats.client.PullSubscribeOptions
 import io.nats.client.impl.NatsMessage
-import java.nio.charset.Charset
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
-import kotlin.time.toJavaDuration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.future.await
+import kotlinx.coroutines.runBlocking
 import mu.KotlinLogging
+import java.nio.charset.Charset
+import java.util.*
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.toJavaDuration
 
 class Memphis private constructor(
     val host: String,
@@ -34,18 +35,23 @@ class Memphis private constructor(
     val autoReconnect: Boolean,
     val maxReconnects: Int,
     val reconnectWait: Duration,
-    val connectionTimeout: Duration
+    val connectionTimeout: Duration,
+    val applicationId: String = UUID.randomUUID().toString()
 ) {
     private val logger = KotlinLogging.logger {}
+    private val producers:MutableMap<String, Producer> = mutableMapOf()
+    private val consumers:MutableMap<String, MutableList<Consumer>> = mutableMapOf()
 
     internal val scope = CoroutineScope(Job())
-
-    val connectionId = generateRandomHex(12)
-
+    val connectionId = UUID.randomUUID().toString()
     internal val brokerConnection: Connection =
         when (authorizationType) {
-            is ConnectionToken -> buildBrokerConnection().token(authorizationType.connectionToken).build().let { Nats.connect(it) }
-            is Password -> buildBrokerConnection().userInfo(username, authorizationType.password).build().let { Nats.connect(it) }
+            is ConnectionToken -> buildBrokerConnection().token(authorizationType.connectionToken).build()
+                .let { Nats.connect(it) }
+
+            is Password -> buildBrokerConnection().userInfo(username, authorizationType.password).build()
+                .let { Nats.connect(it) }
+
             else -> throw MemphisError("Authorization type unrecognized.")
         }
 
@@ -53,7 +59,8 @@ class Memphis private constructor(
     private val jetStream: JetStream = brokerConnection.jetStream()
 
     internal val stationUpdateManager = StationUpdateManager(brokerDispatch, scope)
-    internal val configUpdateManager = ConfigUpdateManager(brokerDispatch, scope)
+    internal val configUpdateManager = ConfigUpdateManager(brokerDispatch,  this, scope)
+    internal val functionUpdateManager = FunctionsUpdateManager(this)
 
     /**
      * Check if the connection to the Memphis broker is connected.
@@ -66,11 +73,21 @@ class Memphis private constructor(
      * @see [Connection.close]
      */
     fun close() {
-        scope.cancel()
-        brokerConnection.close()
+        runBlocking {
+            producers.values.forEach { p ->
+                stationUpdateManager.removeSchemaUpdateListener(p.stationName)
+                functionUpdateManager.removeFunctionUpdates(p.stationName)
+                p.destroy()
+            }
+            consumers.values.flatten().forEach {
+                it.destroy()
+            }
+            scope.cancel()
+            brokerConnection.close()
+        }
     }
 
-    private fun buildBrokerConnection() : io.nats.client.Options.Builder {
+    private fun buildBrokerConnection(): io.nats.client.Options.Builder {
         return io.nats.client.Options.Builder()
             .server("nats://${host}:${port}")
             .connectionName("$connectionId::${username}")
@@ -105,12 +122,6 @@ class Memphis private constructor(
 
         val groupName = (opts.consumerGroup ?: consumerName).toInternalName()
 
-        val pullOptions = PullSubscribeOptions.builder()
-            .durable(groupName)
-            .build()
-
-        val subscription = jetStream.subscribe("${stationName.toInternalName()}.final", pullOptions)
-
         val consumerImpl = ConsumerImpl(
             this,
             cName,
@@ -121,11 +132,16 @@ class Memphis private constructor(
             opts.batchMaxTimeToWait,
             opts.maxAckTime,
             opts.maxMsgDeliveries,
-            subscription
+            opts.startConsumeFromSequence,
+            opts.lastMessages,
+            opts.partitionNumber,
+            username,
+            applicationId
         )
         createResource(consumerImpl)
-        consumerImpl.pingConsumer()
-
+        consumers.computeIfAbsent(stationName) { mutableListOf() }.let {
+            it.add(consumerImpl)
+        }
         return consumerImpl
     }
 
@@ -144,29 +160,37 @@ class Memphis private constructor(
         producerName: String,
         options: (Producer.Options.() -> Unit)? = null
     ): Producer {
-        val opts = options?.let { Producer.Options().apply(it) } ?: Producer.Options()
+      return  producers[stationName.toInternalName()]?.let {
+            it
+        }?:let {
+            val opts = options?.let { Producer.Options().apply(it) } ?: Producer.Options()
 
-        val pName = if (opts.genUniqueSuffix) {
-            extendNameWithRandSuffix(producerName)
-        } else {
-            producerName
-        }.toInternalName()
+            val pName = if (opts.genUniqueSuffix) {
+                extendNameWithRandSuffix(producerName)
+            } else {
+                producerName
+            }.toInternalName()
 
-        val producer = ProducerImpl(
-            this,
-            pName,
-            stationName.toInternalName()
-        )
+            val producer = ProducerImpl(
+                this,
+                pName,
+                stationName.toInternalName(),
+                username,
+                applicationId
+            )
 
-        stationUpdateManager.listenToSchemaUpdates(stationName.toInternalName())
-        try {
-            createResource(producer)
-        } catch (e: Exception) {
-            stationUpdateManager.removeSchemaUpdateListener(stationName.toInternalName())
-            e.printStackTrace()
+            stationUpdateManager.listenToSchemaUpdates(stationName.toInternalName())
+            try {
+                createResource(producer)
+            } catch (e: Exception) {
+                stationUpdateManager.removeSchemaUpdateListener(stationName.toInternalName())
+                e.printStackTrace()
+            }
+
+            producers[stationName.toInternalName()] = producer
+            functionUpdateManager.listenToFunctionUpdates(stationName, producer.partitionsFunctions)
+            producer
         }
-
-        return producer
     }
 
     internal fun brokerPublish(message: NatsMessage, options: PublishOptions) =
@@ -198,7 +222,11 @@ class Memphis private constructor(
             opts.idempotencyWindow,
             opts.schemaName,
             opts.sendPoisonMsgToDls,
-            opts.sendSchemaFailedMsgToDls
+            opts.sendSchemaFailedMsgToDls,
+            this.username,
+            opts.tieredStorageEnabled,
+            opts.partitionsNumber,
+            opts.dlsStation
         )
 
         try {
@@ -252,6 +280,34 @@ class Memphis private constructor(
         if (data.isNotEmpty() && !data.toString(Charset.defaultCharset()).contains("not exist")) {
             throw MemphisError(data)
         }
+        when (d) {
+            is ProducerImpl -> { producers.remove(d.stationName.toInternalName()) }
+            is ConsumerImpl -> { consumers[d.stationName.toInternalName()]?.remove(d)}
+            is StationImpl -> {}
+            else -> {}
+        }
+    }
+
+    fun removeAllConsumers(stationName: String) {
+        runBlocking {
+            consumers[stationName.toInternalName()]?.forEach { consumer ->
+                consumer.stopConsuming()
+                consumer.destroy()
+            }
+        }
+    }
+
+    fun removeProducer(stationName:String) {
+        runBlocking {
+            producers[stationName.toInternalName()]?.destroy()
+        }
+    }
+
+    fun updatePartitionFunction(stationName:String, update:FunctionUpdate) {
+        producers[stationName.toInternalName()]?.let {producer ->
+
+            producer.updatePartitionsFunctions(update.functions)
+        }
     }
 
     class Options(
@@ -284,30 +340,50 @@ class Memphis private constructor(
          */
         var connectionTimeout = 15.seconds
 
+        /**
+         * The unique identifier for the application.
+         *
+         * This variable stores a randomly generated UUID as the application identifier. It is used as a unique identifier for the
+         * application within the system.
+         */
+        var applicationId = UUID.randomUUID().toString()
+
+        var clientApp = false
+
         internal fun build() = Memphis(
-            host, username, authorizationType, port, autoReconnect, maxReconnects, reconnectWait, connectionTimeout
+            host,
+            username,
+            authorizationType,
+            port,
+            autoReconnect,
+            maxReconnects,
+            reconnectWait,
+            connectionTimeout,
+            applicationId
         )
     }
 
     interface AuthorizationType
 
-    class Password (
+    class Password(
         /**
          * The password to use for authentication.
          * @see [Memphis.connect]
          */
-        val password : String
-    ): AuthorizationType
+        val password: String
+    ) : AuthorizationType
 
-    class ConnectionToken (
+    class ConnectionToken(
         /**
          * The connection token to use for authentication.
          * @see [Memphis.connect]
          */
         val connectionToken: String
-    ): AuthorizationType
+    ) : AuthorizationType
 
     companion object {
+
+        internal const val STATION_SUFFIX = ".final"
 
         /**
          * Connect to a Memphis instance with the given options.
@@ -344,7 +420,12 @@ class Memphis private constructor(
          * @see [Options]
          * @throws [MemphisError] If the connection fails or the authorization is invalid.
          */
-        fun connect(host: String, username: String, authorizationType: AuthorizationType, options: Options.() -> Unit): Memphis =
+        fun connect(
+            host: String,
+            username: String,
+            authorizationType: AuthorizationType,
+            options: Options.() -> Unit
+        ): Memphis =
             Options(host, username, authorizationType).apply(options).build()
 
     }

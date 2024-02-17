@@ -7,6 +7,8 @@ import dev.memphis.sdk.MemphisError
 interface Producer {
     val name: String
     val stationName: String
+    val username:String
+    val applicationId:String
 
     /**
      * Produce a message to the broker asynchronously.
@@ -37,10 +39,12 @@ interface Producer {
         produce(message.encodeToByteArray(), options)
     }
 
+    fun updatePartitionsFunctions(functions:Map<Int, Int>)
     /**
      * Destroy the producer.
      */
     suspend fun destroy()
+    val partitionsFunctions: Map<Int, Int>
 
     class ProduceOptions {
         /**
@@ -57,6 +61,14 @@ interface Producer {
          * The ID of the message to produce, if not specified a random ID will be generated.
          */
         var messageId: String? = null
+
+        /**
+         * Represents the partition number for a message in a stream.
+         *
+         * using a -1 will result in a round robin selection of partitions with each call
+         * @property partition The partition number. Default value is -1.
+         */
+        var partition: Int = -1
     }
 
     class Options {
