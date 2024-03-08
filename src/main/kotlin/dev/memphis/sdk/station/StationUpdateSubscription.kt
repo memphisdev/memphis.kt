@@ -11,7 +11,6 @@ import dev.memphis.sdk.schemas.ProtobufSchema
 import dev.memphis.sdk.schemas.Schema
 import io.nats.client.MessageHandler
 import io.nats.client.Subscription
-import java.nio.charset.Charset
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.runBlocking
@@ -41,7 +40,7 @@ internal class StationUpdateSubscription {
     fun messageHandler() = MessageHandler {
         logger.debug { "Received schema update" }
         runBlocking {
-            val update = Json.decodeFromString<SchemaUpdate>(it.data.toString(Charset.defaultCharset()))
+            val update = Json.decodeFromString<SchemaUpdate>(String(it.data))
             schemaUpdates.send(update)
         }
 

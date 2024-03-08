@@ -118,6 +118,9 @@ val station = memphis.createStation("<station-name>") {
     schemaName = "<Schema Name>"
     sendPoisonMsgToDls = true
     sendSchemaFailedMsgToDls = true
+    partitionsNumber = 1
+    tieredStorageEnabled = false
+    dlsStation = "<dls station name>"
 }
 ```
 
@@ -223,6 +226,15 @@ producer.produce("<message in ByteArray or (schema validated station - protobuf)
     headers.put("key", "value")
 }
 ```
+### Produce to specific partition
+
+```kotlin
+producer.produce("<message in ByteArray or (schema validated station - protobuf) or ByteArray(schema validated station - json schema) or ByteArray (schema validated station - graphql schema)>") {
+    partition = 1
+}
+```
+The default is -1 which will result in partitions being selected in a round robin fashion
+
 
 ### Async produce
 Meaning your application won't wait for broker acknowledgement - use only in case you are tolerant for data loss
@@ -257,8 +269,12 @@ val consumer = memphis.consumer("<station-name>", "<consumer-name>") {
     maxAckTime = 30.seconds
     maxMsgDeliveries = 10
     genUniqueSuffix = false
+    startConsumeFromSequence = 1
+    lastMessages = -1
+    partitionNumber = -1
 }
 ```
+A ParititionNumber of -1 indicates that all partitions should be consumed.
 
 ### Processing Messages
 To consume messages you just need to collect the messages from the flow.

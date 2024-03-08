@@ -25,7 +25,7 @@ internal interface Create {
      */
     suspend fun handleCreationResponse(msg: Message) {
         if (msg.data.isEmpty()) return
-        throw MemphisError(msg.data)
+        throw MemphisError("${this::class.java} - ${msg.data}")
     }
 }
 

@@ -4,6 +4,7 @@ import dev.memphis.sdk.Headers
 import dev.memphis.sdk.Lifecycle
 import dev.memphis.sdk.Memphis
 import dev.memphis.sdk.MemphisError
+import dev.memphis.sdk.exceptions.MissingBrokerData
 import dev.memphis.sdk.getDlsSubject
 import dev.memphis.sdk.resources.DlsMessage
 import dev.memphis.sdk.resources.SchemaUpdateInit
@@ -14,23 +15,34 @@ import io.nats.client.Message
 import io.nats.client.PublishOptions
 import io.nats.client.api.PublishAck
 import io.nats.client.impl.NatsMessage
-import java.nio.charset.Charset
-import kotlin.time.toJavaDuration
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
-import kotlinx.serialization.*
-import kotlinx.serialization.json.*
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import mu.KotlinLogging
+import java.nio.charset.Charset
+import kotlin.time.toJavaDuration
 
 class ProducerImpl(
     private val memphis: Memphis,
     override val name: String,
-    override val stationName: String
+    override val stationName: String,
+    override val username: String,
+    override val applicationId: String
 ) : Producer, Lifecycle {
 
     private val logger = KotlinLogging.logger {}
+
+    private var partitionsList: List<Int>? = null
+    private var nextPartitionIndex = 0;
+    override val partitionsFunctions = mutableMapOf<Int, Int>()
 
     override fun produceAsync(message: ByteArray, options: (Producer.ProduceOptions.() -> Unit)?) {
         memphis.scope.launch { callProduce(message, options) }
@@ -55,10 +67,15 @@ class ProducerImpl(
 
         logger.trace { "Publish Message: ${message.toString(Charset.defaultCharset())} Headers: ${options.headers.headers.toStringAll()}" }
 
+        val partNumber = getPartitionNumber(options)
+        val partitionName = partitionsFunctions.get(partNumber)?.let {
+            "${stationName.toInternalName()}\$${partNumber}.functions.$it"
+        } ?: "${stationName.toInternalName()}\$${partNumber}${Memphis.STATION_SUFFIX}"
+
         val data = validateMessage(message, options.headers)
 
         val natsMsg = NatsMessage.builder()
-            .subject(stationName.toInternalName() + ".final")
+            .subject(partitionName)
             .headers(options.headers.headers)
             .data(data)
             .build()
@@ -67,6 +84,16 @@ class ProducerImpl(
         return memphis.brokerPublish(natsMsg, pubOpts).await()
     }
 
+    private fun getPartitionNumber(options: Producer.ProduceOptions): Int {
+        return if (options.partition == -1) {
+             partitionsList?.get(nextPartitionIndex).also {
+                 nextPartitionIndex = (nextPartitionIndex + 1) % partitionsList!!.size
+             } ?: throw MissingBrokerData("Missing partition information")
+        } else {
+            options.partition
+        }
+
+    }
 
     private suspend fun validateMessage(message: ByteArray, headers: Headers): ByteArray {
         val schema = try {
@@ -97,7 +124,7 @@ class ProducerImpl(
             ),
             message = DlsMessage.MessagePayloadDls(
                 timeSent = timeSent,
-                data = message.toString(Charset.defaultCharset()),
+                data = String(message),
                 headers = dlsHeaders
             ),
             creationDate = timeSent
@@ -115,6 +142,12 @@ class ProducerImpl(
             }
         }
     }
+
+    override fun updatePartitionsFunctions(functions: Map<Int, Int>) {
+        partitionsFunctions.clear()
+        partitionsFunctions.putAll(functions)
+    }
+
 
     private fun dlsMessageId(timeSent: Instant) =
         "$stationName~$name~0~${timeSent}"
@@ -152,20 +185,29 @@ class ProducerImpl(
         put("station_name", stationName)
         put("connection_id", memphis.connectionId)
         put("producer_type", "application")
-        put("req_version", 1)
+        put("req_version", 4)
+        put("username", username)
+        put("app_id", applicationId)
+        put("sdk_lang", "kotlin")
     }
 
     override suspend fun handleCreationResponse(msg: Message) {
         val res = try {
-            Json.decodeFromString<CreateProducerResponse>(msg.data.toString(Charset.defaultCharset()))
+            Json {
+                ignoreUnknownKeys = true
+                isLenient = true
+            }.decodeFromString<CreateProducerResponse>(String(msg.data))
         } catch (_: Exception) {
             return super.handleCreationResponse(msg)
         }
 
-        if (res.error != "") throw MemphisError(res.error)
+         if (res.error != "") throw MemphisError(res.error)
         memphis.stationUpdateManager.applySchema(stationName, res.schemaUpdate)
         memphis.configUpdateManager.setClusterConfig("send_notification", res.clusterSendNotification)
         memphis.configUpdateManager.setStationSchemaverseToDls(stationName, res.schemaverseToDls)
+        this.partitionsFunctions.clear()
+        this.partitionsFunctions.putAll(res.stationPartitionsFirstFunctions)
+        this.partitionsList = res.partitionsUpdate.partitionsList
     }
 
     override fun getDestructionSubject(): String =
@@ -182,9 +224,19 @@ class ProducerImpl(
         @SerialName("schema_update") val schemaUpdate: SchemaUpdateInit,
         @SerialName("schemaverse_to_dls") val schemaverseToDls: Boolean,
         @SerialName("send_notification") val clusterSendNotification: Boolean,
+        @SerialName("partitions_update") val partitionsUpdate: PartitionsUpdate,
+        @SerialName("station_version") val StationVersion: Int,
+        @SerialName("station_partitions_first_functions") val stationPartitionsFirstFunctions: Map<Int, Int>
+    )
+
+    @Serializable
+    private data class PartitionsUpdate(
+        @SerialName("partitions_list")
+        var partitionsList: ArrayList<Int>? = null
     )
 
     companion object {
         private const val schemaVFailAlertType = "schema_validation_fail_alert"
+
     }
 }

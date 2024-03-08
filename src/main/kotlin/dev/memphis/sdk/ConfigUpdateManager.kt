@@ -4,7 +4,6 @@ import dev.memphis.sdk.resources.ConfigurationsUpdate
 import io.nats.client.Dispatcher
 import io.nats.client.MessageHandler
 import io.nats.client.Subscription
-import java.nio.charset.Charset
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -18,6 +17,7 @@ typealias StationName = String
 
 internal class ConfigUpdateManager(
     private val dispatcher: Dispatcher,
+    private val memphis:Memphis,
     scope: CoroutineScope
 ) {
     private val logger = KotlinLogging.logger {}
@@ -29,24 +29,32 @@ internal class ConfigUpdateManager(
     private var subscription: Subscription? = null
 
     init {
-        scope.launch {
-            listenToConfigUpdates(dispatcher)
-        }
+            scope.launch {
+                listenToConfigUpdates(dispatcher)
+            }
     }
 
     private fun listenToConfigUpdates(dispatcher: Dispatcher) {
-        subscription = dispatcher.subscribe("\$memphis_sdk_configurations_updates", messageHandler())
+//        subscription = dispatcher.subscribe("\$memphis_sdk_configurations_updates", messageHandler())
+        subscription = dispatcher.subscribe("\$memphis_sdk_clients_updates", messageHandler())
+
     }
 
     private fun messageHandler() = MessageHandler {
         runBlocking {
             logger.debug { "Received config update" }
-            val update = Json.decodeFromString<ConfigurationsUpdate>(it.data.toString(Charset.defaultCharset()))
+            val update = Json.decodeFromString<ConfigurationsUpdate>(String(it.data))
 
             mutex.withLock {
                 when (update.type) {
                     "send_notification" -> clusterConfigurations[update.type] = update.update
-                    "schemaverse_to_dls" -> stationSchemaverseToDls[update.stationName.toInternalName()] = update.update
+                    "schemaverse_to_dls" -> stationSchemaverseToDls[update.stationName] = update.update
+                    "remove_station" -> {
+                        memphis.stationUpdateManager.removeSchemaUpdateListener(update.stationName)
+                        memphis.functionUpdateManager.removeFunctionUpdates(update.stationName)
+                        memphis.removeAllConsumers(update.stationName)
+                        memphis.removeProducer(update.stationName)
+                    }
                     else -> logger.error { "Unrecognized update type: '${update.type}'" }
                 }
             }

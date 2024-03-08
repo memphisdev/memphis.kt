@@ -13,18 +13,26 @@ interface Consumer {
     val batchMaxTimeToWait: Duration
     val maxAckTime: Duration
     val maxMsgDeliveries: Int
+    val startConsumeFromSequence: Int?
+    val lastMessages: Int?
+    val partitionNumber: Int
+    val username:String
+    val applicationId:String
 
     /**
-     * Consume Messages and DLS Messages in one loop
+     * Consume Messages and DLS Messages
+     *
+     * @param partitions an optional list of one or more partitions to consume from.
      * @return Flow<Message> of Messages and DLS Messages
      */
-    suspend fun consume(): Flow<Message>
+    suspend fun consume(vararg partitions:Int): Flow<Message>
 
     /**
      * Only fetch messages from the broker.
+     * @param partitions an optional list of one or more partitions to consume from.
      * @return Flow<Message> of Messages only
      */
-    suspend fun subscribeMessages(): Flow<Message>
+    suspend fun subscribeMessages(vararg partitions:Int): Flow<Message>
 
     /**
      * Only fetch DLS messages from the broker.
@@ -77,5 +85,30 @@ interface Consumer {
          * Whether to generate a unique suffix for the consumer name.
          */
         var genUniqueSuffix: Boolean = false
+
+        /**
+         * Nullable variable that represents the starting sequence number for consuming messages from a sequence.
+         * The sequence number indicates the position of a message in the sequence of messages.
+         * If null, the consumer will start consuming from the beginning of the sequence.
+         * Defaults to 1.
+         */
+        var startConsumeFromSequence: Int? = 1
+
+        /**
+         * Nullable variable that represents the last read message index.
+         * The lastMessages variable indicates the index of the last message that was read from the consumer.
+         * If null, no messages have been read yet.
+         * Defaults to -1.
+         */
+        var lastMessages:Int? = -1
+
+        /**
+         * The partition number indicates the specific partition from which messages are consumed.
+         * Setting this value to -1 will result in all partitions being used
+         *
+         * Default value is -1.
+         */
+        var partitionNumber : Int = -1
+
     }
 }
